@@ -1,0 +1,16 @@
+# tun2socks-manager - example of network configuration
+# 
+# Create a copy of this file in /etc/tun2socks-manager.d, using
+# network gateway as name. E.g. /etc/tun2socks-manager.d/192.168.1.1 for 
+# gateway 192.168.1.1.
+
+# Must make sure that the local routes will preserve SSH connection
+# So either IP of the SSH server, or if connected via a proxy,
+# add the IP of that proxy.
+local 10.0.0.0/8
+local 172.19.0.0.0/16
+local 192.168.0.0/16
+
+# If no dns config, we will keep the one set by the NetworkManager
+# dns 8.8.8.8                      # A general DNS server
+# dns 192.168.1.2 /example.com/    # Use 192.168.1.2 for queries in domain example.com

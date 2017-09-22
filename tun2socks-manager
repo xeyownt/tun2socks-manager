@@ -1,0 +1,257 @@
+#! /bin/bash
+
+# TODO:
+# * Setup reverse DNS
+# * Default config that adds only SSH Server to route table
+#   * Possibly keeping local DNS, or enforcing remote DNS
+# * Remove dependency on NetworkManager?
+# * Issue: can't start virtualbox machine when tun2socks-manager is up
+
+# Collect DNS with
+#     FOODNS=($(nmcli dev show eth0 | perl -lne 'print for /^IP4.DNS.*: +([0-9.]+)/'))
+
+BASE=$(basename $0)
+CONFIG_MAIN_FILE=/etc/tun2socks-manager.conf
+CONFIG_GW_DIR=/etc/tun2socks-manager.d
+
+. $CONFIG_MAIN_FILE
+
+# 1: warning or non-permanent error
+# 3: permanent error (typically configuration error)
+die()
+{
+    CODE=$1
+    shift
+    syslog_err "Error! $@"
+    exit $CODE
+}
+
+syslog_err()
+{
+    >&2 echo "$BASE: $@"
+    syslog "$@"
+}
+
+syslog()
+{
+    logger --id=$BASHPID -t $BASE -- "$@"
+}
+
+cmdlog()
+{
+    # local txtrst=$'\e[0m'    # Text Reset
+    # local txtwht=$'\e[0;37m' # White
+
+    # DEBUG - Uncomment lines below
+    # >&2 echo "${txtwht}+ $@${txtrst}"
+    # syslog "cmd: $@"
+    "$@"
+}
+
+do_install()
+{
+    # Skip if installed already
+    egrep -q "^$IPROUTE_TABLE_ID $IPROUTE_TABLE\$" /etc/iproute2/rt_tables && return 0
+    # Error if ID already taken
+    egrep -q "^$IPROUTE_TABLE_ID " /etc/iproute2/rt_tables && die 3 "Table id $IPROUTE_TABLE_ID already defined."
+
+    # All ok - Create new routing table
+    syslog "Creating routing table '$IPROUTE_TABLE' (id=$IPROUTE_TABLE_ID)."
+    echo "$IPROUTE_TABLE_ID $IPROUTE_TABLE" >> /etc/iproute2/rt_tables
+}
+
+do_uninstall()
+{
+    # Delete routing table. Only delete our entry
+    if egrep -q "^$IPROUTE_TABLE_ID $IPROUTE_TABLE\$" /etc/iproute2/rt_tables ; then
+        syslog "Deleting routing table '$IPROUTE_TABLE' (id=$IPROUTE_TABLE_ID)."
+        cmdlog sed -i "/^$IPROUTE_TABLE_ID $IPROUTE_TABLE\$/d" /etc/iproute2/rt_tables
+    fi
+}
+
+do_start()
+{
+    # Create new tun (temporary) connection if necessary
+    if ! nmcli con show $TUN_CON &> /dev/null; then
+        # TODO: Use dedicated user. Add 'owner $(id -u $TUN_USER)'.
+        syslog "Creating new connection $TUN_CON (ifname=$TUN_DEV, ip4=$IP_TUN/$IP_TUN_MASK)."
+        cmdlog nmcli con add ifname $TUN_DEV con-name $TUN_CON  save no type tun mode tun ip4 $IP_TUN/$IP_TUN_MASK gw4 0.0.0.0
+    fi
+
+    # Start connection if not active yet
+    if ! nmcli con show --active | greq -q "^$TUN_CON " &> /dev/null; then
+        syslog "Activating connection $TUN_CON."
+        cmdlog nmcli con up $TUN_CON
+    fi
+
+    # Start badvpn-tun2socks daemon if not running yet
+    if ! pgrep badvpn-tun2sock &> /dev/null; then    # pgrep is limited to the 15 characters in /proc/pid/stat
+        syslog "Starting badvpn-tun2socks daemon."
+        cmdlog su $TUN_USER -c "setsid badvpn-tun2socks --logger syslog --loglevel $TUN_LOGLEVEL \
+            --tundev $TUN_DEV --netif-ipaddr $IP_TUN_GW --netif-netmask $IP_TUN_GW_MASK \
+            --socks-server-addr $IP_SOCKS_PROXY --udpgw-remote-server-addr $IP_UDPGW"
+    fi
+}
+
+do_stop()
+{
+    # Killing badvpn-tun2socks if it is running
+    if pgrep badvpn-tun2sock &> /dev/null; then  # pgrep is limited to the 15 characters in /proc/pid/stat
+        syslog "Killing badvpn-tun2socks daemon."
+        cmdlog pkill -9 badvpn-tun2sock
+    fi
+
+    # Delete connection $TUN_CON
+    # NetworkManager will automatically delete attached device (TUN_DEV)
+    if nmcli con show $TUN_CON &> /dev/null; then
+        syslog "Deleting connection $TUN_CON."
+        cmdlog nmcli con delete $TUN_CON
+    fi
+}
+
+get_current_gw_and_itf()
+{
+    read REF_GW REF_IF < <( route -n | awk -v TUN_DEV=$TUN_DEV 'BEGIN {metric=10000; REF_IF="none"; REF_GW="0.0.0.0"} {if($1 == "0.0.0.0" && $5 < metric && $8 != TUN_DEV) { REF_IF=$8; REF_GW=$2; metric=$5} } END {print REF_GW " " REF_IF}')
+}
+
+do_up()
+{
+    # Get current gateway and interface
+    get_current_gw_and_itf
+    syslog "Current gateway is $REF_GW via interface $REF_IF."
+    [ "$REF_IF" != "none" ] || die 1 "Warning! No default interface or gateway found."
+
+    # Exit if we don't have a config file for the current gateway
+    TUN_CFG_FILE=$CONFIG_GW_DIR/$REF_GW
+    if ! [ -e $TUN_CFG_FILE ]; then
+        syslog "No config for current gateway. Create file '$TUN_CFG_FILE' to setup a tunnel."
+        exit 0
+    fi
+
+    # Add subnet route for tun0 (duplicate from main route)
+    # ... When tun0 is up, kernel create a route in table main for subnet 10.0.10.0/24.
+    # ... However our config may create another route in table tun that includes that subnet (e.g. 10.0.0.0/8).
+    # ... If we don't duplicate kernet route in this table, this less specific route will take precedence, and
+    # ... hence subnet 10.0.10.0/24 will become unreachable.
+    syslog "Duplicating $TUN_DEV link route from main table."
+    TUN_ROUTE_MAIN=$(ip route | sed -rn "/^$IP_TUN_SUBNET\/$IP_TUN_MASK/{s/linkdown +//; p}")
+    [ -n "$TUN_ROUTE_MAIN" ] || die 1 "Cannot find $TUN_DEV link route."
+    cmdlog ip route add $TUN_ROUTE_MAIN table $IPROUTE_TABLE
+
+    # Parsing configuration
+    DNSMASQ_DNS_CONFIG=
+    syslog "Applying configuration from file '$TUN_CFG_FILE'."
+    while read CFG_TYPE A B C; do
+        [ -n "$CFG_TYPE" ] || continue
+        case $CFG_TYPE in
+            local )
+                [[ $A =~ ^[0-9.]+(/[0-9]+)?$ ]] || die 3 "Bad route '$A' in file '$TUN_CFG_FILE'."
+                syslog "- local route to net $A through interface $REF_IF."
+                cmdlog ip route add $A via $REF_GW table $IPROUTE_TABLE
+                ;;
+            dns )
+                [[ $A =~ ^[0-9.]+$ ]] || die 3 "Bad DNS IP '$A' in file '$TUN_CFG_FILE'."
+                if [ -n "$B" ]; then
+                    [[ $B =~ ^/[a-zA-Z_.-]*/$ ]] || die 3 "Bad DNS DOMAIN '$B' in file '$TUN_CFG_FILE'."
+                    DNSMASQ_DNS_CONFIG="${DNSMASQ_DNS_CONFIG:+$DNSMASQ_DNS_CONFIG,}$B$A"
+                else
+                    DNSMASQ_DNS_CONFIG="${DNSMASQ_DNS_CONFIG:+$DNSMASQ_DNS_CONFIG,}$A"
+                fi
+                ;;
+            *)
+                die 3 "Unknown config '$CFG_TYPE'."
+        esac
+    done < <(sed -r 's/#.*//' "$TUN_CFG_FILE")
+
+    syslog "Setting $IP_TUN_GW as default gateway."
+    # Metric not needed. Will take precedence thanks to our new table and policy rule
+    cmdlog ip route add default via $IP_TUN_GW table $IPROUTE_TABLE
+
+    # Enable new routes and flush route cache
+    syslog "Enabling route table '$IPROUTE_TABLE' and flushing cache."
+    cmdlog ip rule add from all lookup $IPROUTE_TABLE prio $IPROUTE_TABLE_PRIO
+    cmdlog ip route flush table cache
+
+    # Configure dnsmasq if necessary
+    if [ -n "$DNSMASQ_DNS_CONFIG" ]; then
+        syslog "Configuring upstream DNS servers in dnsmasq."
+        syslog "- using '$DNSMASQ_DNS_CONFIG'."
+        cmdlog dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager.dnsmasq \
+            /uk/org/thekelleys/dnsmasq uk.org.thekelleys.SetDomainServers \
+            "array:string:$DNSMASQ_DNS_CONFIG"
+    fi
+}
+
+do_down()
+{
+    if ip rule | grep "^$IPROUTE_TABLE_PRIO" -q; then
+        syslog "Removing rule for table $IPROUTE_TABLE."
+        cmdlog ip rule del prio $IPROUTE_TABLE_PRIO
+    fi
+
+    # Remove all routes in tunnel table
+    syslog "Flushing route table $IPROUTE_TABLE."
+    cmdlog ip route flush table $IPROUTE_TABLE
+
+    # Reset dnsmasq
+    syslog "Reloading dnsmasq configuration."
+    cmdlog pkill -SIGHUP NetworkManager      # Reload dnsmasq configuration
+}
+
+usage()
+{
+    echo "$BASE { install | uninstall | start | stop | up | down | update [IF] [STATUS] }"
+}
+
+check_root()
+{
+    [ $(whoami) == "root" ] || die 3 "Run this script as root."
+}
+
+check_root
+
+shift $((OPTIND-1))
+[ $# -ge 1 ] || usage
+COMMAND=$1
+shift
+
+# Only for update command
+IF=$1
+STATUS=$2
+
+syslog "Received command: $COMMAND${IF:+ $IF}${STATUS:+ $STATUS}."
+
+if [ "$COMMAND" = install ]; then
+    do_install
+elif [ "$COMMAND" = uninstall ]; then
+    do_down
+    do_stop
+    do_uninstall
+elif [ "$COMMAND" = start ]; then
+    do_start
+elif [ "$COMMAND" = stop ]; then
+    do_stop
+elif [ "$COMMAND" = up ]; then
+    do_start && do_up
+elif [ "$COMMAND" = down ]; then
+    do_down
+elif [ "$COMMAND" = update ]; then
+    if [ -n "$IF" -a "$STATUS" == down ]; then
+        # An interface went down. Exit if we don't route through it
+        if ! ip route show table $IPROUTE_TABLE | grep -q "dev $IF"; then
+            syslog "No change needed in current tunnel."
+            exit 0
+        fi
+    fi
+    if [ -n "$IF" -a "$STATUS" == up ]; then
+        # An interface went up. Exit if we route already through it
+        if ip route show table $IPROUTE_TABLE | grep -q "dev $IF"; then
+            syslog "No change needed in current tunnel."
+            exit 0
+        fi
+    fi
+    do_down && do_start && do_up
+else
+    die 3 "Unknown command '$COMMAND'."
+fi
+
