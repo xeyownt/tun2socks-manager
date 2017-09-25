@@ -30,9 +30,6 @@
 # tun/tap interface name.
 #TUN_IF=tun0
 
-# tun/tap connection name in NetworkManager.
-#TUN_CON=tun-$TUN_IF
-
 ########################################################################
 # Route table
 #

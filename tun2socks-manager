@@ -22,7 +22,6 @@ TUN_IP=10.0.10.1
 TUN_IP_CIDR=24
 TUN_IP_GW=10.0.10.2
 TUN_IF=tun0
-TUN_CON=tun-$TUN_IF
 IPROUTE_TABLE=tun
 IPROUTE_TABLE_ID=100
 IPROUTE_TABLE_PRIO=1000
@@ -120,17 +119,18 @@ do_uninstall()
 
 do_start()
 {
-    # Create new tun (temporary) connection if necessary
-    if ! nmcli con show $TUN_CON &> /dev/null; then
-        # TODO: Use dedicated user. Add 'owner $(id -u $TUN_USER)'.
-        syslog "Creating new connection $TUN_CON (ifname=$TUN_IF, ip4=$TUN_IP/$TUN_IP_CIDR)."
-        cmdlog nmcli con add ifname $TUN_IF con-name $TUN_CON  save no type tun mode tun ip4 $TUN_IP/$TUN_IP_CIDR gw4 0.0.0.0
+    # Create new tun/tap device if necessary
+    if ! ip link show $TUN_IF &> /dev/null; then
+        syslog "Creating new tun/tap device $TUN_IF (name=$TUN_IF, ip4=$TUN_IP/$TUN_IP_CIDR)."
+        # TODO: Use dedicated user. Add 'user $TUN_USER'.
+        cmdlog ip tuntap add dev $TUN_IF mode tun ${TUN_USER:+user $TUN_USER}
+        cmdlog ip address add $TUN_IP/$TUN_IP_CIDR dev $TUN_IF
     fi
 
     # Start connection if not active yet
-    if ! nmcli con show --active | greq -q "^$TUN_CON " &> /dev/null; then
-        syslog "Activating connection $TUN_CON."
-        cmdlog nmcli con up $TUN_CON
+    if ! ip link show $TUN_IF | grep -q "[<,]UP[,>]" &> /dev/null; then
+        syslog "Activating tun/tap device $TUN_IF."
+        cmdlog ip link set dev $TUN_IF up
     fi
 
     # Start badvpn-tun2socks daemon if not running yet
@@ -151,11 +151,10 @@ do_stop()
         cmdlog pkill -9 badvpn-tun2sock
     fi
 
-    # Delete connection $TUN_CON
-    # NetworkManager will automatically delete attached device (TUN_IF)
-    if nmcli con show $TUN_CON &> /dev/null; then
-        syslog "Deleting connection $TUN_CON."
-        cmdlog nmcli con delete $TUN_CON
+    # Delete tun/tap device $TUN_IF
+    if ip link show $TUN_IF &> /dev/null; then
+        syslog "Deleting interface $TUN_IF."
+        ip tuntap delete dev $TUN_IF mode tun
     fi
 }
 
