@@ -12,6 +12,7 @@
 BASE=$(basename $0)
 CONFIG_MAIN_FILE=/etc/tun2socks-manager.conf
 CONFIG_GW_DIR=/etc/tun2socks-manager.d
+STATE=/var/run/$BASE
 
 # Read configuration. First set default values, then source local config
 TUN2SOCKS_PROXY=127.0.0.1:1080
@@ -173,6 +174,7 @@ do_up()
     # Exit if we don't have a config file for the current gateway
     TUN_CFG_FILE=$CONFIG_GW_DIR/$GW
     if ! [ -e $TUN_CFG_FILE ]; then
+        > $STATE
         syslog "No config for current gateway. Create file '$TUN_CFG_FILE' to setup a tunnel."
         exit 0
     fi
@@ -230,10 +232,14 @@ do_up()
             /uk/org/thekelleys/dnsmasq uk.org.thekelleys.SetDomainServers \
             "array:string:$DNSMASQ_DNS_CONFIG"
     fi
+
+    echo "$IF" > $STATE
 }
 
 do_down()
 {
+    > $STATE
+
     if ip rule | grep "^$IPROUTE_TABLE_PRIO" -q; then
         syslog "Removing rule for table $IPROUTE_TABLE."
         cmdlog ip rule del prio $IPROUTE_TABLE_PRIO
@@ -288,14 +294,14 @@ elif [ "$COMMAND" = down ]; then
 elif [ "$COMMAND" = update ]; then
     if [ -n "$CMD_IF" -a "$CMD_STATUS" == down ]; then
         # An interface went down. Exit if we don't route through it
-        if ! ip route show table $IPROUTE_TABLE | grep -q "dev $CMD_IF"; then
+        if ! grep -q "^$CMD_IF\$" $STATE; then
             syslog "No change needed in current tunnel."
             exit 0
         fi
     fi
     if [ -n "$CMD_IF" -a "$CMD_STATUS" == up ]; then
         # An interface went up. Exit if we route already through it
-        if ip route show table $IPROUTE_TABLE | grep -q "dev $CMD_IF"; then
+        if grep -q "^$CMD_IF\$" $STATE; then
             syslog "No change needed in current tunnel."
             exit 0
         fi
