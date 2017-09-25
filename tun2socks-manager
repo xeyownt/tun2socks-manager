@@ -1,14 +1,5 @@
 #! /bin/bash
 
-# TODO:
-# * Setup reverse DNS
-# * Default config that adds only SSH Server to route table
-#   * Possibly keeping local DNS as reported by NM, or enforcing remote DNS
-#     Note: DNS can be collected with 
-#       $(nmcli dev show eth0 | perl -lne 'print for /^IP4.DNS.*: +([0-9.]+)/'))
-# * Remove dependency on NetworkManager?
-# * Issue: can't start virtualbox machine when tun2socks-manager is up
-
 BASE=$(basename $0)
 CONFIG_MAIN_FILE=/etc/tun2socks-manager.conf
 CONFIG_GW_DIR=/etc/tun2socks-manager.d
@@ -122,7 +113,6 @@ do_start()
     # Create new tun/tap device if necessary
     if ! ip link show $TUN_IF &> /dev/null; then
         syslog "Creating new tun/tap device $TUN_IF (name=$TUN_IF, ip4=$TUN_IP/$TUN_IP_CIDR)."
-        # TODO: Use dedicated user. Add 'user $TUN_USER'.
         cmdlog ip tuntap add dev $TUN_IF mode tun ${TUN_USER:+user $TUN_USER}
         cmdlog ip address add $TUN_IP/$TUN_IP_CIDR dev $TUN_IF
     fi

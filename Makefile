@@ -8,7 +8,6 @@ BIN:=$(BASE)
 
 .PHONY: install reconfigure uninstall purge
 
-# TODO: Must update dispatcher.d/02tun2socks with correct path
 install:
 	[ $$(whoami) == "root" ]
 	cp $(BIN) $(BIN_DIR)/$(BIN)
