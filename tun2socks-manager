@@ -163,6 +163,16 @@ get_current_gw_and_itf()
     read GW IF < <( route -n | awk -v TUN_IF=$TUN_IF 'BEGIN {metric=10000; IF="none"; GW="0.0.0.0"} {if($1 == "0.0.0.0" && $5 < metric && $8 != TUN_IF) { IF=$8; GW=$2; metric=$5} } END {print GW " " IF}')
 }
 
+update_dnsmasq()
+{
+    local CONFIG=$1
+    syslog "Configuring upstream DNS servers in dnsmasq."
+    syslog "- using '$CONFIG'."
+    cmdlog dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager.dnsmasq \
+        /uk/org/thekelleys/dnsmasq uk.org.thekelleys.SetDomainServers \
+        "array:string:$CONFIG"
+}
+
 do_up()
 {
     # Get current gateway and interface
@@ -227,16 +237,13 @@ do_up()
     cmdlog ip rule add from all lookup $IPROUTE_TABLE prio $IPROUTE_TABLE_PRIO
     cmdlog ip route flush table cache
 
+    echo "IF=$IF" > $STATE
+
     # Configure dnsmasq if necessary
     if [ -n "$DNSMASQ_DNS_CONFIG" ]; then
-        syslog "Configuring upstream DNS servers in dnsmasq."
-        syslog "- using '$DNSMASQ_DNS_CONFIG'."
-        cmdlog dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager.dnsmasq \
-            /uk/org/thekelleys/dnsmasq uk.org.thekelleys.SetDomainServers \
-            "array:string:$DNSMASQ_DNS_CONFIG"
+        update_dnsmasq "$DNSMASQ_DNS_CONFIG"
+        echo "DNSMASQ_DNS_CONFIG=$DNSMASQ_DNS_CONFIG" >> $STATE
     fi
-
-    echo "$IF" > $STATE
 }
 
 do_down()
@@ -298,15 +305,22 @@ elif [ "$COMMAND" = down ]; then
 elif [ "$COMMAND" = update ]; then
     if [ -n "$CMD_IF" -a "$CMD_STATUS" == down ]; then
         # An interface went down. Exit if we don't route through it
-        if ! grep -q "^$CMD_IF\$" $STATE; then
-            syslog "No change needed in current tunnel."
+        if ! grep -q "^IF=$CMD_IF\$" $STATE; then
+            DNSMASQ_DNS_CONFIG=$(<$STATE perl -lne 'print for /DNSMASQ_DNS_CONFIG=(.*)/g')
+            if [ -n "$DNSMASQ_DNS_CONFIG" ]; then
+                # NM may reconfigure dnsmasq in case an itf went down. 
+                # So let's make sure we keep our DNS settings.
+                update_dnsmasq "$DNSMASQ_DNS_CONFIG"
+            else
+                syslog "No change needed in current tunnel."
+            fi
             exit 0
         fi
     fi
     if [ -n "$CMD_IF" -a "$CMD_STATUS" == up ]; then
         # An interface went up. Exit if we route already through the (new) current gw
         get_current_gw_and_itf
-        if grep -q "^$IF\$" $STATE; then
+        if grep -q "^IF=$IF\$" $STATE; then
             syslog "No change needed in current tunnel."
             exit 0
         fi
