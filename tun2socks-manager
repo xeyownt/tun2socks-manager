@@ -168,7 +168,11 @@ do_up()
     # Get current gateway and interface
     get_current_gw_and_itf
     syslog "Current gateway is $GW via interface $IF."
-    [ "$IF" != "none" ] || die 1 "Warning! No default interface or gateway found."
+    if [ "$IF" == "none" ]; then
+        > $STATE
+        syslog "No default interface or gateway found."
+        exit 0
+    fi
 
     # Exit if we don't have a config file for the current gateway
     TUN_CFG_FILE=$CONFIG_GW_DIR/$GW
