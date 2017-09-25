@@ -286,6 +286,7 @@ elif [ "$COMMAND" = uninstall ]; then
 elif [ "$COMMAND" = start ]; then
     do_start
 elif [ "$COMMAND" = stop ]; then
+    do_down
     do_stop
 elif [ "$COMMAND" = up ]; then
     do_start && do_up
