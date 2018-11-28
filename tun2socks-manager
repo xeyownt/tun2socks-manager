@@ -323,7 +323,7 @@ elif [ "$COMMAND" = update ]; then
         # An interface went up. Exit if we route already through the (new) current gw
         get_current_gw_and_itf
         if grep -q "^IF=$IF\$" $STATE; then
-            syslog "No change needed in current tunnel."
+            syslog "No change needed in current tunnel (CMD_IF $CMD_IF)."
             exit 0
         fi
     fi
