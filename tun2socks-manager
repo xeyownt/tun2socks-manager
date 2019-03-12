@@ -127,7 +127,7 @@ do_start()
     if ! pgrep badvpn-tun2sock &> /dev/null; then    # pgrep is limited to the 15 characters in /proc/pid/stat
         syslog "Starting badvpn-tun2socks daemon."
         local TUN_IP_GW_MASK=$(cidr_to_mask $TUN_IP_CIDR)
-        cmdlog su $TUN_USER -c "setsid badvpn-tun2socks --logger syslog --loglevel $TUN2SOCKS_LOGLEVEL \
+        cmdlog su $TUN_USER -c "setsid -f badvpn-tun2socks --logger syslog --loglevel $TUN2SOCKS_LOGLEVEL \
             --tundev $TUN_IF --netif-ipaddr $TUN_IP_GW --netif-netmask $TUN_IP_GW_MASK \
             --socks-server-addr $TUN2SOCKS_PROXY --udpgw-remote-server-addr $TUN2SOCKS_UDPGW_REMOTE"
     fi
