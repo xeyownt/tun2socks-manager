@@ -11,6 +11,8 @@ local 10.0.0.0/8
 local 172.19.0.0.0/16
 local 192.168.0.0/16
 
+locate 123.123.0.0/16             # Some corporate subnet to preserve
+
 # If no dns config, we will keep the one set by the NetworkManager
-#dns 8.8.8.8                      # A general DNS server
-#dns 192.168.1.2 /example.com/    # Use 192.168.1.2 for queries in domain example.com
+dns 192.168.1.2 /example.com/    # Use some corporate DNS at 192.168.1.2, for resolution of *.example.com
+dns 8.8.8.8                      # A general DNS server
