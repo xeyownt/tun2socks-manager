@@ -46,8 +46,8 @@ When troubleshooting, it helps to follow these messages in a separate window. Fo
 
 First, the tun interface is created with:
 
-    /usr/local/tun2socks-manager start
+    /usr/local/bin/tun2socks-manager start
 
 Then the routing rule are created with (replace with correct network interface as necessary):
 
-    /usr/local/tun2socks-manager update eth0 up
+    /usr/local/bin/tun2socks-manager update eth0 up
