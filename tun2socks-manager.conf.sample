@@ -9,6 +9,7 @@
 # Address and port of udpgw proxy on remote SSH server.
 # This is the address given to badvpn-udpgw with '--listen-addr'
 # parameter on the remote SSH server.
+# Leave empty if badvpn-udpgw does not run on remote SSH server.
 #TUN2SOCKS_UDPGW_REMOTE=127.0.0.1:7300
 
 # badvpn-tun2socks log level (0-5/none/error/warning/notice/info/debug).
