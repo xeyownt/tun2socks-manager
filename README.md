@@ -85,6 +85,32 @@ See file `/etc/tun2socks-manager.conf` and per-connection sample file in `/etc/t
     Error org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.NetworkManager.dnsmasq
     was not provided by any .service files
 
+### WiFi hot-spot no longer working ###
+
+The script heavily interferes with the routing table, and may interfere with the routing of IP packets
+from the WiFi interface. In particular, if the computer is also used as hotspot, the routing may be
+broken.
+
+    $ ip route
+    default via 10.137.3.254 dev enp0s31f6 proto dhcp metric 100 
+    10.0.10.0/24 dev tun0 proto kernel scope link src 10.0.10.1 
+    10.42.0.0/24 dev wlp1s0 proto kernel scope link src 10.42.0.1 metric 600 
+    10.137.2.0/23 dev enp0s31f6 proto kernel scope link src 10.137.2.174 metric 100 
+
+We see we have a dedicated route for the hotspot on itf wlsp1s0. However when looking in the tun
+table, we don't find such routing, but instead the routing is caught in a general routing rule.
+
+    $ ip route show table tun
+    default via 10.0.10.2 dev tun0 
+    10.0.0.0/8 via 10.137.3.254 dev enp0s31f6 
+    10.0.10.0/24 dev tun0 proto kernel scope link src 10.0.10.1 
+    10.137.2.0/23 dev enp0s31f6 proto kernel scope link src 10.137.2.174 
+    ...
+
+To fix this, we must duplicate the hotspot routing rule in the tun table:
+
+    sudo ip route add 10.42.0.0/24 dev wlp1s0 proto kernel scope link src 10.42.0.1 metric 600 table tun
+
 ## Debugging
 
 Messages are sent to `/var/log/messages`:
