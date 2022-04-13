@@ -324,14 +324,15 @@ elif [ "$COMMAND" = update ]; then
             exit 0
         fi
     fi
-    if [ -n "$CMD_IF" -a "$CMD_STATUS" == up ]; then
-        # An interface went up. Exit if we route already through the (new) current gw
-        get_current_gw_and_itf
-        if grep -q "^IF=$IF\$" $STATE; then
-            syslog "No change needed in current tunnel (CMD_IF $CMD_IF)."
-            exit 0
-        fi
-    fi
+    # We cannot do this if we want to restore hotspot route (that may went up and down separately)
+    # if [ -n "$CMD_IF" -a "$CMD_STATUS" == up ]; then
+    #     # An interface went up. Exit if we route already through the (new) current gw
+    #     get_current_gw_and_itf
+    #     if grep -q "^IF=$IF\$" $STATE; then
+    #         syslog "No change needed in current tunnel (CMD_IF $CMD_IF)."
+    #         exit 0
+    #     fi
+    # fi
     do_down && do_start && do_up
 else
     die 3 "Unknown command '$COMMAND'."
