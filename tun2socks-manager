@@ -195,11 +195,16 @@ do_up()
 
     # We duplicate "proto kernel scope link" routes from the main table, to make sure these remain accessible
     syslog "Duplicating scope link routes from main table."
-    while read subnet _dev dev _proto proto _scope scope _src src ignore; do
+    while read subnet _dev dev _proto proto _scope scope _src src _metric metric ignore; do
         if [ "$_dev" == "dev" -a "$_proto" == "proto" -a "$_scope" == "scope" -a "$_src" == "src"  ]; then
             if [ "$dev" != "$TUN_IF" -a "$proto" == "kernel" -a "$scope" == "link" ]; then
-                syslog "Duplicating $subnet dev $dev proto $proto scope $scope src $src"
-                cmdlog ip route add $subnet dev $dev proto $proto scope $scope src $src table $IPROUTE_TABLE
+                if [ "$_metric" == "metric" ]; then
+                    syslog "Duplicating $subnet dev $dev proto $proto scope $scope src $src metric $metric"
+                    cmdlog ip route add $subnet dev $dev proto $proto scope $scope src $src metric $metric table $IPROUTE_TABLE
+                else
+                    syslog "Duplicating $subnet dev $dev proto $proto scope $scope src $src"
+                    cmdlog ip route add $subnet dev $dev proto $proto scope $scope src $src table $IPROUTE_TABLE
+                fi
             fi
         fi
     done < <(ip route)
