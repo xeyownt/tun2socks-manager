@@ -4,11 +4,10 @@ IF=$1
 STATUS=$2
 
 # We must exclude tun* device, but let's white list instead
-[[ $IF =~ ^eth[0-9] || $IF =~ ^wlan[0-9] || $IF =~ ^enp[0-9] ]] || exit 0
+[[ $IF =~ ^eth[0-9] || $IF =~ ^wlan[0-9] || $IF =~ ^wlp[0-9] || $IF =~ ^enp[0-9] ]] || exit 0
 
 case "$2" in
-        up | down)
-		/usr/local/bin/tun2socks-manager update $IF $STATUS
-		;;
+	up | down)
+	/usr/local/bin/tun2socks-manager update $IF $STATUS
+	;;
 esac
-
