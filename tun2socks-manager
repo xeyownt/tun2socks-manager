@@ -150,7 +150,11 @@ do_stop()
 
 get_current_gw_and_itf()
 {
-    read GW IF < <( route -n | awk -v TUN_IF=$TUN_IF 'BEGIN {metric=10000; IF="none"; GW="0.0.0.0"} {if($1 == "0.0.0.0" && $5 < metric && $8 != TUN_IF) { IF=$8; GW=$2; metric=$5} } END {print GW " " IF}')
+    # Assuming pattern like:
+    #
+    #     default via 10.137.3.254 dev enx3c18a0cff295 proto dhcp metric 100
+    #
+    read GW IF < <( ip route | awk -v TUN_IF=tun0 'BEGIN { metric=10000; IF="none"; GW="0.0.0.0" } { if($1 == "default" && $9 < metric && $5 != TUN_IF) { IF=$5; GW=$3; metric=$9 } } END { print GW " " IF }' )
 }
 
 update_dnsmasq()
