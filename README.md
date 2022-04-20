@@ -6,13 +6,23 @@ Manage automatically SOCKS5 tunnel created with
 
 ## Install client
 
-Install dependencies:
+Install `dnsmasq-base`:
 
 ``` bash
 sudo apt install dnsmasq-base
+sudo vi /etc/NetworkManager/NetworkManager.conf
+# Edit as follows:
+#      [main]
+#      plugins=ifupdown,keyfile
+#     +dns=dnsmasq
+sudo vi /etc/dhcp/dhclient.conf
+# Edit as follows:
+#      #supersede domain-name "fugue.com home.vix.com";
+#     -#prepend domain-name-servers 127.0.0.1;
+#     +prepend domain-name-servers 127.0.0.1;
 ```
 
-We need badvpn-tun2socks:
+Build `badvpn-tun2socks` from source:
 
 ``` bash
 sudo apt install cmake
@@ -25,7 +35,7 @@ make
 sudo cp tun2socks/badvpn-tun2socks /usr/local/bin
 ```
 
-Install tun2socks-manager:
+Install `tun2socks-manager`:
 
 ``` bash
 cd tun2socks-manager
@@ -85,6 +95,19 @@ See file `/etc/tun2socks-manager.conf` and per-connection sample file in `/etc/t
     Error org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.NetworkManager.dnsmasq
     was not provided by any .service files
 
+This is likely because `dnsmasq` is not running. Check that NetworkManager started it in background.
+Otherwise follows the install instructions above.
+
+``` bash
+ps faux | grep dnsmasq
+# nobody    128496  0.0  0.0  12976  4548 ?        S    10:06   0:00 /usr/sbin/dnsmasq --no-resolv
+# --keep-in-foreground --no-hosts --bind-interfaces --pid-file=/run/NetworkManager/dnsmasq.pid
+# --listen-address=127.0.0.1 --cache-size=400 --clear-on-reload --conf-file=/dev/null --proxy-dnssec
+# --enable-dbus=org.freedesktop.NetworkManager.dnsmasq --conf-dir=/etc/NetworkManager/dnsmasq.d
+```
+
+Also check that the parameter given to `--enable-dbus` matches the expected string.
+
 ### WiFi hot-spot no longer working ###
 
 The script heavily interferes with the routing table, and may interfere with the routing of IP packets
@@ -92,19 +115,19 @@ from the WiFi interface. In particular, if the computer is also used as hotspot,
 broken.
 
     $ ip route
-    default via 10.137.3.254 dev enp0s31f6 proto dhcp metric 100 
-    10.0.10.0/24 dev tun0 proto kernel scope link src 10.0.10.1 
-    10.42.0.0/24 dev wlp1s0 proto kernel scope link src 10.42.0.1 metric 600 
-    10.137.2.0/23 dev enp0s31f6 proto kernel scope link src 10.137.2.174 metric 100 
+    default via 10.137.3.254 dev enp0s31f6 proto dhcp metric 100
+    10.0.10.0/24 dev tun0 proto kernel scope link src 10.0.10.1
+    10.42.0.0/24 dev wlp1s0 proto kernel scope link src 10.42.0.1 metric 600
+    10.137.2.0/23 dev enp0s31f6 proto kernel scope link src 10.137.2.174 metric 100
 
 We see we have a dedicated route for the hotspot on itf wlsp1s0. However when looking in the tun
 table, we don't find such routing, but instead the routing is caught in a general routing rule.
 
     $ ip route show table tun
-    default via 10.0.10.2 dev tun0 
-    10.0.0.0/8 via 10.137.3.254 dev enp0s31f6 
-    10.0.10.0/24 dev tun0 proto kernel scope link src 10.0.10.1 
-    10.137.2.0/23 dev enp0s31f6 proto kernel scope link src 10.137.2.174 
+    default via 10.0.10.2 dev tun0
+    10.0.0.0/8 via 10.137.3.254 dev enp0s31f6
+    10.0.10.0/24 dev tun0 proto kernel scope link src 10.0.10.1
+    10.137.2.0/23 dev enp0s31f6 proto kernel scope link src 10.137.2.174
     ...
 
 To fix this, we must duplicate the hotspot routing rule in the tun table:
@@ -125,7 +148,7 @@ When troubleshooting, it helps to follow these messages in a separate window. Fo
 tail -f /var/log/messages
 ```
 
-`tun2socks-manager` is installed as a Network Manager (NM) dispatcher script. When NM starts, 
+`tun2socks-manager` is installed as a Network Manager (NM) dispatcher script. When NM starts,
 it launches the tun2socks-manager with:
 
 ``` bash
