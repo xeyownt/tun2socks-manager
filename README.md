@@ -2,7 +2,8 @@
 
 Manage automatically SOCKS5 tunnel created with
 [tun2socks](https://github.com/ambrop72/badvpn/wiki/Tun2socks) from package
-[badvpn](https://github.com/ambrop72/badvpn).
+[badvpn](https://github.com/ambrop72/badvpn). This allows for setting up a cheap VPN on top of
+for instance an SSH tunnel.
 
 ## Install client
 
