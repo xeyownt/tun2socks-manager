@@ -239,7 +239,7 @@ do_up()
         esac
     done < <(sed -r 's/#.*//' "$TUN_CFG_FILE")
 
-    syslog "Setting $TUN_IP_GW as default gateway."
+    syslog "Setting $TUN_IP_GW as default gateway in table $IPROUTE_TABLE."
     # Metric not needed. Will take precedence thanks to our new table and policy rule
     cmdlog ip route add default via $TUN_IP_GW table $IPROUTE_TABLE
 
